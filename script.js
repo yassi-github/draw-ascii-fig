@@ -1,20 +1,19 @@
 // ページの読み込みが完了した
 window.addEventListener('load', () => {
-  // パネル数をセット
-  function setPanelNum() {
+  // パネル数を返す
+  function getPanelNum() {
     // 現在のパラメータからパネル数を取得
     let panelNumFromParam = Number(new URL(location).searchParams.get("n"));
 
     // 初期値
-    let panelNum = 4;
+    let panelNum = 30;
 
     // 取得したパネル数指定が範囲内なら更新
     if (3 <= panelNumFromParam && panelNumFromParam <= 256) {
       panelNum = panelNumFromParam;
     }
 
-    // パネル数を指定し、メイン処理開始
-    main(panelNum);
+    return panelNum;
   }
 
 
@@ -31,7 +30,8 @@ window.addEventListener('load', () => {
 
 
   // パネル数をパラメータから取得，変更
-  setPanelNum();
+  // パネル数を指定し、メイン処理開始
+  main(getPanelNum());
 
   // ボタンクリックで入力値パネル数に更新
   document.querySelector('#panelnum-button').addEventListener('click', setUri);
@@ -39,6 +39,8 @@ window.addEventListener('load', () => {
 
   // メイン処理
   function main(panelNum) {
+    // textareaクリア
+    document.getElementById("text-area").value = "";
     // canvasの取得
     const canvas = document.querySelector('#draw-area');
     const gridCanvas = document.querySelector('#grid-area');
@@ -457,6 +459,9 @@ window.addEventListener('load', () => {
     
     // マウスのドラッグが終了したら、もしくはマウスがcanvas外に移動したらisDragのフラグをfalseにしてdraw関数内でお絵かき処理が中断されるようにする
     function dragEnd(x, y) {
+      // 既に終わっているなら何もしない(カーソルがキャンバス領域外に出たときも発動してしまうので)
+      if (!isDrag) return;
+
       isDrag = false;
       // カーソル位置は画面の左上が原点だけど，キャンバスで扱うのはキャンバスの左上が原点座標なので，差分を吸収する
       endY = y - canvas.offsetTop;
@@ -467,6 +472,7 @@ window.addEventListener('load', () => {
 
       // 描いた矩形の左上座標と右下座標をidxStoreArrayに追加
       storeBoxIdxRect(boxStartX, boxStartY, boxEndX, boxEndY);
+      console.log("DragEnd at", x, y);
     }
 
 
@@ -480,14 +486,60 @@ window.addEventListener('load', () => {
 
     // play時の処理
     function play() {
-      // store座標から右上と左下も算出する
+      // init
+      document.getElementById("text-area").value = "";
       // 全部wsで埋める(既存図形に影響せず移動するため)
+      // パネル数ぶんの0埋め2次元配列を作成
+      let ASCII_ARRAY = new Array(PANEL_NUM_Y);
+      for (let row = 0; row < PANEL_NUM_Y; row++) {
+        ASCII_ARRAY[row] = new Array(PANEL_NUM_X).fill(" ");
+      }
+      console.log(JSON.stringify(idxStoreArray).replaceAll(']],[[', ']],\n[['));
+
       // loop:
-      // 左上座標に移動(なにも配置しない)
-      // 左上に+、そこから右上手前まで-、右上は+を配置
-      // 左下まで下るときにx座標位置には|を、その他にはwhite spaceを配置
-      // 左下に+、右下手前まで-、右下は+を配置
-      // 後入れのものほど手前にくるのでこれでよい
+      for (let storeIdx = 0; storeIdx < idxStoreArray.length; storeIdx++) {
+        // l: left, r: right
+        // t: top, b: bottom
+        let ltx = idxStoreArray[storeIdx][0][0];
+        let lty = idxStoreArray[storeIdx][0][1];
+        let rbx = idxStoreArray[storeIdx][1][0];
+        let rby = idxStoreArray[storeIdx][1][1];
+        // 左上座標に移動(なにも配置しない)
+        let currentIdx = [ltx, lty];
+        // 左上に+、そこから右上手前まで-、右上は+を配置
+        ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
+        for (currentIdx[0] += 1; currentIdx[0] < rbx; currentIdx[0]++) {
+          ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
+        }
+        // currentIdx[0] += 1;
+        ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
+        currentIdx[0] = ltx;
+        // 左x下まで下るときにx座標位置には|を、その他にはwhite spaceを配置
+        for (currentIdx[1] += 1; currentIdx[1] < rby; currentIdx[1]++) {
+          for (; currentIdx[0] <= rbx; currentIdx[0]++) {
+            if (currentIdx[0] == ltx || currentIdx[0] == rbx) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "|";
+            } else {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = " ";
+            }
+          }
+          currentIdx[0] = ltx;
+        }
+        // 左下に+、右下手前まで-、右下は+を配置
+        // currentIdx[1] += 1;
+        ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
+        for (currentIdx[0] += 1; currentIdx[0] < rbx; currentIdx[0]++) {
+          ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
+        }
+        // currentIdx[0] += 1;
+        ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
+        // 後入れのものほど手前にくるのでこれでよい
+      }
+
+      // write
+      for (let y = 0; y < ASCII_ARRAY.length; y++) {
+        document.getElementById("text-area").value += ASCII_ARRAY[y].join("") + "\n";
+      }
     }
 
     // 色変更
