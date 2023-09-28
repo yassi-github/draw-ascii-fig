@@ -392,6 +392,10 @@ window.addEventListener('load', () => {
     let startY = 0;
     let endX = 0;
     let endY = 0;
+    let boxStartX = 0;
+    let boxStartY = 0;
+    let boxEndX = 0;
+    let boxEndY = 0;
 
     // マウスのドラッグを開始したらisDragをtrueにしてdraw関数内で描画処理が途中で止まらないようにする
     function dragStart(x, y) {
@@ -399,15 +403,70 @@ window.addEventListener('load', () => {
       // カーソル位置は画面の左上が原点だけど，キャンバスで扱うのはキャンバスの左上が原点座標なので，差分を吸収する
       startY = y - canvas.offsetTop;
       startX = x - canvas.offsetLeft;
+      // boxのidx
+      boxStartX = curIdx2BoxIdxX(x);
+      boxStartY = curIdx2BoxIdxY(y);
     }
 
+    let idxStoreArray = new Array();
 
+    function storeBoxIdxRect(sx, sy, ex, ey) {
+      // input start: (sx, sy)
+      // input end: (ex, ey)
+      // 
+      // startが左上、endが右下になるように調整
+      // start(左上): (asx, asy)
+      // end(右下): (aex, aey)
+      let asx, asy, aex, aey = 0;
+      if (sx > ex) {
+        // r to l
+        asx = ex;
+        aex = sx;
+        if (sy > ey) {
+          // b to t
+          asy = ey;
+          aey = sy;
+        } else {
+          // t to b
+          asy = sy;
+          aey = ey;
+        }
+      } else {
+        // l to r
+        asx = sx;
+        aex = ex;
+        if (sy > ey) {
+          // b to t
+          asy = ey;
+          aey = sy;
+        } else {
+          // t to b
+          asy = sy;
+          aey = ey;
+        }
+      }
+
+      // store idx
+      // [ [[asx, asy], [aex, aey]], ... ]
+      let startIdxTuple = [asx, asy];
+      let endIdxTuple = [aex, aey];
+      let idxTuple = [startIdxTuple, endIdxTuple];
+      idxStoreArray.push(idxTuple);
+    }
+    
+    
     // マウスのドラッグが終了したら、もしくはマウスがcanvas外に移動したらisDragのフラグをfalseにしてdraw関数内でお絵かき処理が中断されるようにする
     function dragEnd(x, y) {
       isDrag = false;
       // カーソル位置は画面の左上が原点だけど，キャンバスで扱うのはキャンバスの左上が原点座標なので，差分を吸収する
       endY = y - canvas.offsetTop;
       endX = x - canvas.offsetLeft;
+      // boxのidx
+      boxEndX = curIdx2BoxIdxX(x);
+      boxEndY = curIdx2BoxIdxY(y);
+
+      // 描いた矩形の左上座標と右下座標をidxStoreArrayに追加
+      storeBoxIdxRect(boxStartX, boxStartY, boxEndX, boxEndY);
     }
 
 
@@ -420,38 +479,16 @@ window.addEventListener('load', () => {
 
 
     // play時の処理
-    // const play = async () => {
-    //   // PLAY中にボタン押されたらPLAY終了(中断処理)
-    //   if (isPlaying) {
-    //     isPlaying = false;
-    //     isEnd = false;
-    //     document.getElementById("play-button").innerHTML = "PLAY";
-    //     return;
-    //   }
-    //   // gameplay flag
-    //   isPlaying = true;
-    //   document.getElementById("play-button").innerHTML = "PLAYING...";
-
-    //   // 終わらない限り
-    //   while (!isEnd) {
-    //     // もしもの中断処理
-    //     if (!isPlaying) return;
-        
-    //     // field配列を次の世代に更新
-    //     calNextLife();
-    //     // 描画
-    //     // 現在の描画図形を削除
-    //     remove();
-    //     // field配列から図形を描画
-    //     fillAllBoxFromArray();
-    //     // ちょっと待つ
-    //     await wait(1000);
-    //   }
-
-    //   // 初期化
-    //   isEnd = false;
-    // };
-    
+    function play() {
+      // store座標から右上と左下も算出する
+      // 全部wsで埋める(既存図形に影響せず移動するため)
+      // loop:
+      // 左上座標に移動(なにも配置しない)
+      // 左上に+、そこから右上手前まで-、右上は+を配置
+      // 左下まで下るときにx座標位置には|を、その他にはwhite spaceを配置
+      // 左下に+、右下手前まで-、右下は+を配置
+      // 後入れのものほど手前にくるのでこれでよい
+    }
 
     // 色変更
     context.fillStyle = 'rgb(0,0,0)';
@@ -463,8 +500,8 @@ window.addEventListener('load', () => {
     // マウス操作やボタンクリック時のイベント処理を定義する
     function initEventHandler() {
 
-      // const playButon = document.querySelector('#play-button');
-      // playButon.addEventListener('click', play);
+      const playButon = document.querySelector('#play-button');
+      playButon.addEventListener('click', play);
 
       const clearButton = document.querySelector('#clear-button');
       clearButton.addEventListener('click', clear);
