@@ -173,10 +173,63 @@ window.addEventListener('load', () => {
     let xIdxOld = null;
     let yIdxOld = null;
 
-    // rect/arrow mode
-    // 0: rect mode
-    // 1: allow mode
-    let mode = 0;
+    // delete/write mode
+    // 0: delete mode
+    // 1: write mode
+    let mode = 1;
+
+    // カーソル位置x,yに属するパネルにdirectionに応じた方向の三角を描画する
+    // direction:
+    // 0: top, 1: right, 2: bottom, 3: left
+    function fillTriangle(ctx, x, y, direction) {
+      let startPointX, startPointY = null;
+      let endPointX, endPointY = null;
+      let tipPointX, tipPointY = null;
+      
+      switch (direction) {
+        case 0:
+          startPointX = curIdx2BoxIdxX(x) * PLUS_NUM_X;
+          startPointY = (curIdx2BoxIdxY(y) + 1) * PLUS_NUM_Y;
+          tipPointX = startPointX + (PLUS_NUM_X / 2 | 0);
+          tipPointY = curIdx2BoxIdxY(y) * PLUS_NUM_Y;
+          endPointX = (curIdx2BoxIdxX(x) + 1) * PLUS_NUM_X;
+          endPointY = startPointY;
+          break;
+        case 1:
+          startPointX = curIdx2BoxIdxX(x) * PLUS_NUM_X;
+          startPointY = curIdx2BoxIdxY(y) * PLUS_NUM_Y;
+          tipPointX = (curIdx2BoxIdxX(x) + 1) * PLUS_NUM_X;
+          tipPointY = startPointY + (PLUS_NUM_Y / 2 | 0);
+          endPointX = startPointX;
+          endPointY = (curIdx2BoxIdxY(y) + 1) * PLUS_NUM_Y;
+          break;
+        case 2:
+          startPointX = curIdx2BoxIdxX(x) * PLUS_NUM_X;
+          startPointY = curIdx2BoxIdxY(y) * PLUS_NUM_Y;
+          tipPointX = startPointX + (PLUS_NUM_X / 2 | 0);
+          tipPointY = (curIdx2BoxIdxY(y) + 1) * PLUS_NUM_Y;
+          endPointX = (curIdx2BoxIdxX(x) + 1) * PLUS_NUM_X;
+          endPointY = startPointY;
+          break;
+        case 3:
+          startPointX = (curIdx2BoxIdxX(x) + 1) * PLUS_NUM_X;
+          startPointY = curIdx2BoxIdxY(y) * PLUS_NUM_Y;
+          tipPointX = curIdx2BoxIdxX(x) * PLUS_NUM_X;
+          tipPointY = startPointY + (PLUS_NUM_Y / 2 | 0);
+          endPointX = (curIdx2BoxIdxX(x) + 1) * PLUS_NUM_X;
+          endPointY = (curIdx2BoxIdxY(y) + 1) * PLUS_NUM_Y;
+          break;
+        default:
+          console.error("invalid arrow direction value(must be 0~3):", direction);
+          break;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(startPointX, startPointY);
+      ctx.lineTo(tipPointX, tipPointY);
+      ctx.lineTo(endPointX, endPointY);
+      ctx.fill();
+    }
 
     // カーソル位置を受け取り，そこが属するパネルを塗りつぶす
     // フィールド配列の書き換えも行う
@@ -236,6 +289,11 @@ window.addEventListener('load', () => {
           drawFillBox(drawMode, endX, yIdx);
         }
       }
+    }
+
+    // 指定パネル位置の図形を消す
+    function removeBox(boxIdxX, boxIdxY) {
+      context.clearRect(boxIdxX * PLUS_NUM_X, boxIdxY * PLUS_NUM_Y, PLUS_NUM_X, PLUS_NUM_Y);
     }
 
     function removeBoxesRect(sx, sy, ex, ey) {
@@ -300,7 +358,7 @@ window.addEventListener('load', () => {
         }
 
         // startX,Yから現在のx,yまでを対角とする矩形を描く
-        drawBoxesRect(1, startX, startY, x, y);
+        drawBoxesRect(mode, startX, startY, x, y);
 
         // 描いたら位置情報を更新
         xIdxOld = xIdx;
@@ -321,14 +379,36 @@ window.addEventListener('load', () => {
       context.clearRect(0, 0, canvas.width, canvas.height);
       // 0埋め
       field = JSON.parse(JSON.stringify(ZERO_ARRAY));
+      // textareaも空にする
+      document.getElementById("text-area").value = "";
+      // ws埋め
+      for (let row = 0; row < PANEL_NUM_Y; row++) {
+        ASCII_ARRAY[row].fill(" ");
+      }
+      // idxStoreArrayらも初期化
+      idxStoreArray = new Array();
+      maskIdxList = new Array();
     }
 
-    function switchMode(mode) {
+
+    function modeString(mode) {
+      switch (mode) {
+        case 0:
+          return "ChangeMode:🎨";
+        case 1:
+          return "ChangeMode:🧹";
+        default:
+          return "?";
+      }
+    }
+
+    function switchMode() {
       mode += 1;
       // reset to 0 if expired max mode counter
       if (mode > 1) {
         mode = 0;
       }
+      document.querySelector('#switch-button').innerText = modeString(mode);
     }
 
     // canvas上の図形を全部消すだけ
@@ -411,15 +491,28 @@ window.addEventListener('load', () => {
     }
 
     let idxStoreArray = new Array();
+    let maskIdxList = new Array();
+
+    // mask図形もidxStoreArrayに入るがそのarrayのidxはmaskIdxListに保持しておく
+    function storeBoxIdxRectMask(sx, sy, ex, ey) {
+      // input start: (sx, sy)
+      // input end: (ex, ey)
+      maskIdxList.push(idxStoreArray.length);
+      storeBoxIdxRect(sx, sy, ex, ey);
+    }
 
     function storeBoxIdxRect(sx, sy, ex, ey) {
       // input start: (sx, sy)
       // input end: (ex, ey)
-      // 
-      // startが左上、endが右下になるように調整
+      idxStoreArray.push([[sx, sy], [ex, ey]]);
+    }
+
+    // startが左上、endが右下になるように調整
+    // return Tuple: [[ltx, lty], [rbx, rby]]
+    function correctStoreIdx(sx, sy, ex, ey) {
       // start(左上): (asx, asy)
       // end(右下): (aex, aey)
-      let asx, asy, aex, aey = 0;
+      let asx = asy = aex = aey = 0;
       if (sx > ex) {
         // r to l
         asx = ex;
@@ -453,7 +546,7 @@ window.addEventListener('load', () => {
       let startIdxTuple = [asx, asy];
       let endIdxTuple = [aex, aey];
       let idxTuple = [startIdxTuple, endIdxTuple];
-      idxStoreArray.push(idxTuple);
+      return idxTuple;
     }
     
     
@@ -470,9 +563,52 @@ window.addEventListener('load', () => {
       boxEndX = curIdx2BoxIdxX(x);
       boxEndY = curIdx2BoxIdxY(y);
 
-      // 描いた矩形の左上座標と右下座標をidxStoreArrayに追加
-      storeBoxIdxRect(boxStartX, boxStartY, boxEndX, boxEndY);
-      console.log("DragEnd at", x, y);
+      switch (mode) {
+        case 0:
+          // delete mode
+          // マスクに追加
+          storeBoxIdxRectMask(boxStartX, boxStartY, boxEndX, boxEndY);
+          break;
+        case 1:
+          // write mode
+          // 描いた矩形の左上座標と右下座標をidxStoreArrayに追加
+          storeBoxIdxRect(boxStartX, boxStartY, boxEndX, boxEndY);
+
+          // startXとendXが同じなら上下線
+          // startYとendYが同じなら横線
+          // こういう直線は矢印として描画する
+          // その場で動かない場合は矢印ではない
+          if (boxStartX == boxEndX) {
+            // 上下線
+            if (boxStartY > boxEndY) {
+              // bottom to top
+              removeBox(boxEndX, boxEndY);
+              fillTriangle(context, x, y, 0);
+            }
+            if (boxStartY < boxEndY) {
+              // top to bottom
+              removeBox(boxEndX, boxEndY);
+              fillTriangle(context, x, y, 2);
+            }
+          }
+          if (boxStartY == boxEndY) {
+            // 横線
+            if (boxStartX > boxEndX) {
+              // right to left
+              removeBox(boxEndX, boxEndY);
+              fillTriangle(context, x, y, 3);
+            }
+            if (boxStartX < boxEndX) {
+              // left to right
+              removeBox(boxEndX, boxEndY);
+              fillTriangle(context, x, y, 1);
+            }
+          }
+          break;
+        default:
+          console.error("invalid mode(must be 0~1", mode);
+          break;
+      }
     }
 
 
@@ -483,52 +619,116 @@ window.addEventListener('load', () => {
       });
     };
 
+    // パネル数ぶんの2次元配列を作成
+    let ASCII_ARRAY = new Array(PANEL_NUM_Y);
+    for (let row = 0; row < PANEL_NUM_Y; row++) {
+      ASCII_ARRAY[row] = new Array(PANEL_NUM_X);
+    }
 
     // play時の処理
     function play() {
       // init
       document.getElementById("text-area").value = "";
       // 全部wsで埋める(既存図形に影響せず移動するため)
-      // パネル数ぶんの0埋め2次元配列を作成
-      let ASCII_ARRAY = new Array(PANEL_NUM_Y);
       for (let row = 0; row < PANEL_NUM_Y; row++) {
-        ASCII_ARRAY[row] = new Array(PANEL_NUM_X).fill(" ");
+        ASCII_ARRAY[row].fill(" ");
       }
-      console.log(JSON.stringify(idxStoreArray).replaceAll(']],[[', ']],\n[['));
 
       // loop:
       for (let storeIdx = 0; storeIdx < idxStoreArray.length; storeIdx++) {
         // l: left, r: right
         // t: top, b: bottom
-        let ltx = idxStoreArray[storeIdx][0][0];
-        let lty = idxStoreArray[storeIdx][0][1];
-        let rbx = idxStoreArray[storeIdx][1][0];
-        let rby = idxStoreArray[storeIdx][1][1];
+        // raw: 入力位置保持した生
+        let rawStartX = idxStoreArray[storeIdx][0][0];
+        let rawStartY = idxStoreArray[storeIdx][0][1];
+        let rawEndX = idxStoreArray[storeIdx][1][0];
+        let rawEndY = idxStoreArray[storeIdx][1][1];
+        // adj: 左上右下
+        let correctStoreIdxTuple = correctStoreIdx(rawStartX, rawStartY, rawEndX, rawEndY);
+        let adjLtx = correctStoreIdxTuple[0][0];
+        let adjLty = correctStoreIdxTuple[0][1];
+        let adjRbx = correctStoreIdxTuple[1][0];
+        let adjRby = correctStoreIdxTuple[1][1];
         // 左上座標に移動(なにも配置しない)
-        let currentIdx = [ltx, lty];
+        let currentIdx = [adjLtx, adjLty];
+        
+        // マスク範囲のやつは消す
+
+        if (maskIdxList.includes(storeIdx)) {
+          // wsで埋める
+          for (; currentIdx[1] <= adjRby; currentIdx[1]++) {
+            for (; currentIdx[0] <= adjRbx; currentIdx[0]++) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = " ";
+            }
+            currentIdx[0] = adjLtx;
+          }
+          continue;
+        }
+
+        // Arrow
+
+        if (rawStartX == rawEndX) {
+          if (rawStartY > rawEndY) {
+            // b to t
+            ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "^";
+            for (currentIdx[1] += 1; currentIdx[1] < adjRby; currentIdx[1]++) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "|";
+            }
+            continue;
+          }
+          if (rawStartY < rawEndY) {
+            // t to b
+            for (; currentIdx[1] < adjRby; currentIdx[1]++) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "|";
+            }
+            ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "v";
+            continue;
+          }
+        }
+        if (rawStartY == rawEndY) {
+          if (rawStartX > rawEndX) {
+            // r to l
+            ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "<";
+            for (currentIdx[0] += 1; currentIdx[0] < adjRbx; currentIdx[0]++) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
+            }
+            continue;
+          }
+          if (rawStartX < rawEndX) {
+            // l to r
+            for (; currentIdx[0] < adjRbx; currentIdx[0]++) {
+              ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
+            }
+            ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = ">";
+            continue;
+          }
+        }
+
+        // Rect
+
         // 左上に+、そこから右上手前まで-、右上は+を配置
         ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
-        for (currentIdx[0] += 1; currentIdx[0] < rbx; currentIdx[0]++) {
+        for (currentIdx[0] += 1; currentIdx[0] < adjRbx; currentIdx[0]++) {
           ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
         }
         // currentIdx[0] += 1;
         ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
-        currentIdx[0] = ltx;
+        currentIdx[0] = adjLtx;
         // 左x下まで下るときにx座標位置には|を、その他にはwhite spaceを配置
-        for (currentIdx[1] += 1; currentIdx[1] < rby; currentIdx[1]++) {
-          for (; currentIdx[0] <= rbx; currentIdx[0]++) {
-            if (currentIdx[0] == ltx || currentIdx[0] == rbx) {
+        for (currentIdx[1] += 1; currentIdx[1] < adjRby; currentIdx[1]++) {
+          for (; currentIdx[0] <= adjRbx; currentIdx[0]++) {
+            if (currentIdx[0] == adjLtx || currentIdx[0] == adjRbx) {
               ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "|";
             } else {
               ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = " ";
             }
           }
-          currentIdx[0] = ltx;
+          currentIdx[0] = adjLtx;
         }
         // 左下に+、右下手前まで-、右下は+を配置
         // currentIdx[1] += 1;
         ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "+";
-        for (currentIdx[0] += 1; currentIdx[0] < rbx; currentIdx[0]++) {
+        for (currentIdx[0] += 1; currentIdx[0] < adjRbx; currentIdx[0]++) {
           ASCII_ARRAY[currentIdx[1]][currentIdx[0]] = "-";
         }
         // currentIdx[0] += 1;
@@ -548,6 +748,9 @@ window.addEventListener('load', () => {
     // gridLineは描いとく
     drawGridLine();
 
+    // change mode button string
+    document.querySelector('#switch-button').innerText = modeString(mode);
+
 
     // マウス操作やボタンクリック時のイベント処理を定義する
     function initEventHandler() {
@@ -560,7 +763,7 @@ window.addEventListener('load', () => {
 
       const switchButton = document.querySelector('#switch-button');
       switchButton.addEventListener('click', () => {
-        switchMode(mode);
+        switchMode();
       });
 
       const modifyGridLineButton = document.querySelector('#grid-button');
